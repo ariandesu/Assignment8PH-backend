@@ -1,43 +1,45 @@
-# Kindora Server
+# Kindora API
 
-Express.js REST API for the Kindora Social Impact Platform.
+Express + MongoDB REST API for **Kindora**, a social development events platform.
+
+**Live API:** https://server-delta-five-18.vercel.app
+**Client repository:** https://github.com/ariandesu/Assignment8-frontend
+
+## Authentication
+
+The Next.js client signs users in with Better Auth. Its JWT plugin issues short-lived tokens (`GET /api/auth/token`) and publishes public keys at `/api/auth/jwks`. This API verifies the `Authorization: Bearer <token>` header against that JWKS (`jose`), checking issuer and audience. Owner-only actions compare the token's user id with the event's `creatorId`.
 
 ## Environment Variables
 
-Create a `.env` file with:
-
 ```env
-PORT=5000
-NODE_ENV=development
-MONGODB_URI=your-mongodb-connection-string
-CLIENT_URL=http://localhost:3000
-AUTH_BASE_URL=http://localhost:3000
-BETTER_AUTH_URL=http://localhost:3000
-BETTER_AUTH_SECRET=your-secret
-JWT_ISSUER=http://localhost:3000
-JWT_AUDIENCE=kindora-api
-JWKS_URL=http://localhost:3000/api/auth/jwks
+PORT=5001
+MONGODB_URI=mongodb+srv://...
+DB_NAME=kindora
+CLIENT_URL=http://localhost:3000                     # allowed CORS origin(s), comma-separated
+JWKS_URL=http://localhost:3000/api/auth/jwks          # <client-url>/api/auth/jwks
+JWT_ISSUER=http://localhost:3000                      # must match the client's JWT_ISSUER
+JWT_AUDIENCE=kindora-api                              # must match the client's JWT_AUDIENCE
 ```
 
-## Install & Run
+## Run Locally
 
 ```bash
 npm install
 npm run dev
 ```
 
-## API Endpoints
+## Endpoints
 
 | Method | Endpoint | Access | Purpose |
-|--------|----------|--------|---------|
-| GET | /api/events | Public | Get upcoming events |
-| GET | /api/events/recent | Public | Get six recent events |
-| GET | /api/events/:id | Public | Get event details |
-| POST | /api/events | JWT | Create event |
-| GET | /api/my-events | JWT | Get user's events |
-| PATCH | /api/events/:id | JWT + Owner | Update event |
-| DELETE | /api/events/:id | JWT + Owner | Delete event |
-| POST | /api/events/:id/join | JWT | Join event |
-| GET | /api/my-joined-events | JWT | Get joined events |
-| GET | /api/users/me | JWT | Get profile |
-| PATCH | /api/users/me | JWT | Update profile |
+|---|---|---|---|
+| GET | `/api/events` | Public | Upcoming events (`search`, `category`, `location`, `page`, `limit`) |
+| GET | `/api/events/recent` | Public | Six nearest upcoming events (`.limit(6)`) |
+| GET | `/api/events/:id` | Public | Event details with participant count |
+| POST | `/api/events` | JWT | Create event (future date required) |
+| PATCH | `/api/events/:id` | JWT + owner | Update event |
+| DELETE | `/api/events/:id` | JWT + owner | Delete event and its participants |
+| POST | `/api/events/:id/join` | JWT | Join event (once per user) |
+| GET | `/api/events/:id/join-status` | JWT | Whether the user joined |
+| GET | `/api/my-events` | JWT | Events created by the user |
+| GET | `/api/my-joined-events` | JWT | Joined events sorted by event date |
+| GET | `/api/users/me` | JWT | Identity from the token |
