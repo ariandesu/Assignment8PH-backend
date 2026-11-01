@@ -1,74 +1,91 @@
 import { ObjectId } from 'mongodb';
 
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const SORT_FIELDS = { eventDate: 1, createdAt: -1, title: 1 };
+const EDITABLE_FIELDS = ['title', 'description', 'category', 'image', 'location', 'eventDate'];
+
+const pickEventFields = (body) => {
+  const data = {};
+  EDITABLE_FIELDS.forEach((field) => {
+    if (body[field] === undefined) return;
+    data[field] = field === 'eventDate' ? new Date(body[field]) : String(body[field]).trim();
+  });
+  return data;
+};
+
+const findOwnedEvent = async (db, id, userId, res) => {
+  if (!ObjectId.isValid(id)) {
+    res.status(400).json({ success: false, message: 'Invalid event ID.' });
+    return null;
+  }
+  const event = await db.collection('events').findOne({ _id: new ObjectId(id) });
+  if (!event) {
+    res.status(404).json({ success: false, message: 'Event not found.' });
+    return null;
+  }
+  if (String(event.creatorId) !== String(userId)) {
+    res.status(403).json({ success: false, message: 'You can only change events you created.' });
+    return null;
+  }
+  return event;
+};
+
 export const eventController = {
-  // GET /api/events - Public - Get upcoming events
-  getUpcomingEvents: async (req, res) => {
+  // GET /api/events - Public - Upcoming events only
+  getUpcomingEvents: async (req, res, next) => {
     try {
       const db = req.app.locals.db;
-      const page = parseInt(req.query.page) || 1;
-      const limit = parseInt(req.query.limit) || 9;
+      const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+      const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 12, 1), 50);
       const skip = (page - 1) * limit;
-      const search = req.query.search || '';
-      const category = req.query.category || '';
-      const location = req.query.location || '';
-      const sort = req.query.sort || 'eventDate';
+      const search = String(req.query.search || '').trim();
+      const category = String(req.query.category || '').trim();
+      const location = String(req.query.location || '').trim();
+      const sortField = SORT_FIELDS[req.query.sort] ? req.query.sort : 'eventDate';
 
-      const filter = {
-        eventDate: { $gt: new Date() },
-      };
+      const filter = { eventDate: { $gt: new Date() } };
+      if (search) filter.title = { $regex: escapeRegex(search), $options: 'i' };
+      if (category) filter.category = category;
+      if (location) filter.location = { $regex: escapeRegex(location), $options: 'i' };
 
-      if (search) {
-        filter.title = { $regex: search, $options: 'i' };
-      }
-      if (category) {
-        filter.category = category;
-      }
-      if (location) {
-        filter.location = { $regex: location, $options: 'i' };
-      }
-
-      const events = await db.collection('events')
-        .find(filter)
-        .sort({ [sort]: 1 })
-        .skip(skip)
-        .limit(limit)
-        .toArray();
-
-      const total = await db.collection('events').countDocuments(filter);
+      const [events, total] = await Promise.all([
+        db.collection('events')
+          .find(filter)
+          .sort({ [sortField]: SORT_FIELDS[sortField] })
+          .skip(skip)
+          .limit(limit)
+          .toArray(),
+        db.collection('events').countDocuments(filter),
+      ]);
 
       res.json({
         success: true,
         events,
-        pagination: {
-          page,
-          limit,
-          total,
-          pages: Math.ceil(total / limit),
-        },
+        pagination: { page, limit, total, pages: Math.ceil(total / limit) },
       });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      next(err);
     }
   },
 
-  // GET /api/events/recent - Public - Get six recent upcoming events
-  getRecentEvents: async (req, res) => {
+  // GET /api/events/recent - Public - Six nearest upcoming events by date
+  getRecentEvents: async (req, res, next) => {
     try {
       const db = req.app.locals.db;
       const events = await db.collection('events')
         .find({ eventDate: { $gt: new Date() } })
-        .sort({ createdAt: -1 })
+        .sort({ eventDate: 1 })
         .limit(6)
         .toArray();
 
       res.json({ success: true, events });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      next(err);
     }
   },
 
-  // GET /api/events/:id - Public - Get event details
-  getEventById: async (req, res) => {
+  // GET /api/events/:id - Public - Event details
+  getEventById: async (req, res, next) => {
     try {
       const db = req.app.locals.db;
       const { id } = req.params;
@@ -78,41 +95,30 @@ export const eventController = {
       }
 
       const event = await db.collection('events').findOne({ _id: new ObjectId(id) });
-
       if (!event) {
         return res.status(404).json({ success: false, message: 'Event not found.' });
       }
 
-      // Count participants
-      const participantCount = await db.collection('eventParticipants')
-        .countDocuments({ eventId: id });
+      const participantCount = await db.collection('eventParticipants').countDocuments({ eventId: id });
 
-      res.json({
-        success: true,
-        event: { ...event, participantCount },
-      });
+      res.json({ success: true, event: { ...event, participantCount } });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      next(err);
     }
   },
 
   // POST /api/events - JWT - Create event
-  createEvent: async (req, res) => {
+  createEvent: async (req, res, next) => {
     try {
       const db = req.app.locals.db;
-      const { title, description, category, image, location, eventDate } = req.body;
-
+      const now = new Date();
       const newEvent = {
-        title: title.trim(),
-        description: description.trim(),
-        category,
-        image: image.trim(),
-        location: location.trim(),
-        eventDate: new Date(eventDate),
+        ...pickEventFields(req.body),
         creatorId: req.user.id,
         creatorEmail: req.user.email,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        creatorName: req.user.name || '',
+        createdAt: now,
+        updatedAt: now,
       };
 
       const result = await db.collection('events').insertOne(newEvent);
@@ -123,102 +129,69 @@ export const eventController = {
         event: { ...newEvent, _id: result.insertedId },
       });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      next(err);
     }
   },
 
-  // GET /api/my-events - JWT - Get user's created events
-  getMyEvents: async (req, res) => {
+  // GET /api/my-events - JWT - Events created by the logged-in user
+  getMyEvents: async (req, res, next) => {
     try {
       const db = req.app.locals.db;
       const events = await db.collection('events')
         .find({ creatorId: req.user.id })
-        .sort({ createdAt: -1 })
+        .sort({ eventDate: 1 })
         .toArray();
 
-      // Add participant count to each event
-      const eventsWithCounts = await Promise.all(events.map(async (event) => {
-        const count = await db.collection('eventParticipants')
-          .countDocuments({ eventId: event._id.toString() });
-        return { ...event, participantCount: count };
-      }));
-
-      res.json({ success: true, events: eventsWithCounts });
-    } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
-    }
-  },
-
-  // PATCH /api/events/:id - JWT + Owner - Update event
-  updateEvent: async (req, res) => {
-    try {
-      const db = req.app.locals.db;
-      const { id } = req.params;
-
-      if (!ObjectId.isValid(id)) {
-        return res.status(400).json({ success: false, message: 'Invalid event ID.' });
-      }
-
-      const event = await db.collection('events').findOne({ _id: new ObjectId(id) });
-      if (!event) {
-        return res.status(404).json({ success: false, message: 'Event not found.' });
-      }
-
-      if (String(event.creatorId) !== String(req.user.id)) {
-        return res.status(403).json({ success: false, message: 'Not authorized to update this event.' });
-      }
-
-      const updates = {};
-      const allowedFields = ['title', 'description', 'category', 'image', 'location', 'eventDate'];
-      allowedFields.forEach((field) => {
-        if (req.body[field] !== undefined) {
-          updates[field] = field === 'eventDate' ? new Date(req.body[field]) : req.body[field].trim();
-        }
-      });
-      updates.updatedAt = new Date();
-
-      await db.collection('events').updateOne({ _id: new ObjectId(id) }, { $set: updates });
-
-      const updatedEvent = await db.collection('events').findOne({ _id: new ObjectId(id) });
+      const counts = await db.collection('eventParticipants').aggregate([
+        { $match: { eventId: { $in: events.map((e) => e._id.toString()) } } },
+        { $group: { _id: '$eventId', count: { $sum: 1 } } },
+      ]).toArray();
+      const countMap = Object.fromEntries(counts.map((c) => [c._id, c.count]));
 
       res.json({
         success: true,
-        message: 'Event updated successfully.',
-        event: updatedEvent,
+        events: events.map((e) => ({ ...e, participantCount: countMap[e._id.toString()] || 0 })),
       });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      next(err);
     }
   },
 
-  // DELETE /api/events/:id - JWT + Owner - Delete event
-  deleteEvent: async (req, res) => {
+  // PATCH /api/events/:id - JWT + owner - Update event
+  updateEvent: async (req, res, next) => {
     try {
       const db = req.app.locals.db;
       const { id } = req.params;
+      const event = await findOwnedEvent(db, id, req.user.id, res);
+      if (!event) return;
 
-      if (!ObjectId.isValid(id)) {
-        return res.status(400).json({ success: false, message: 'Invalid event ID.' });
-      }
+      const updates = { ...pickEventFields(req.body), updatedAt: new Date() };
+      const updatedEvent = await db.collection('events').findOneAndUpdate(
+        { _id: new ObjectId(id), creatorId: req.user.id },
+        { $set: updates },
+        { returnDocument: 'after' }
+      );
 
-      const event = await db.collection('events').findOne({ _id: new ObjectId(id) });
-      if (!event) {
-        return res.status(404).json({ success: false, message: 'Event not found.' });
-      }
+      res.json({ success: true, message: 'Event updated successfully.', event: updatedEvent });
+    } catch (err) {
+      next(err);
+    }
+  },
 
-      if (String(event.creatorId) !== String(req.user.id)) {
-        return res.status(403).json({ success: false, message: 'Not authorized to delete this event.' });
-      }
+  // DELETE /api/events/:id - JWT + owner - Delete event
+  deleteEvent: async (req, res, next) => {
+    try {
+      const db = req.app.locals.db;
+      const { id } = req.params;
+      const event = await findOwnedEvent(db, id, req.user.id, res);
+      if (!event) return;
 
-      await db.collection('events').deleteOne({ _id: new ObjectId(id) });
+      await db.collection('events').deleteOne({ _id: new ObjectId(id), creatorId: req.user.id });
       await db.collection('eventParticipants').deleteMany({ eventId: id });
 
-      res.json({
-        success: true,
-        message: 'Event deleted successfully.',
-      });
+      res.json({ success: true, message: 'Event deleted successfully.' });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      next(err);
     }
   },
 };
