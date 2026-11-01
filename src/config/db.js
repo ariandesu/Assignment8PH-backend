@@ -21,7 +21,7 @@ const connectDB = async () => {
       connectTimeoutMS: 20000,
       socketTimeoutMS: 20000,
       tls: true,
-      tlsAllowInvalidCertificates: false,
+      tlsAllowInvalidCertificates: true,
     });
     clientPromise = client.connect();
   }
