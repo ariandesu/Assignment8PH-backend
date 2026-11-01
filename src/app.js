@@ -2,27 +2,42 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import eventRoutes from './routes/event.routes.js';
-import participantRoutes from './routes/participant.routes.js';
 import userRoutes from './routes/user.routes.js';
+import { myEventsRouter, myJoinedEventsRouter } from './routes/me.routes.js';
 import { errorHandler } from './middlewares/errorHandler.js';
-import { connectDB, getDB } from './config/db.js';
+import { connectDB } from './config/db.js';
 
 const app = express();
 
-// CORS - restrict to deployed frontend origin
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
+// CORS - CLIENT_URL may hold one origin or a comma-separated list
+const allowedOrigins = [
+  ...(process.env.CLIENT_URL || '').split(',').map((o) => o.trim()).filter(Boolean),
+  'http://localhost:3000',
+];
+
 app.use(cors({
-  origin: [CLIENT_URL, 'http://localhost:3000'],
+  origin: (origin, callback) => {
+    // Allow non-browser requests (curl, server-side fetch) and listed origins
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(null, false);
+  },
   credentials: true,
 }));
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '1mb' }));
 
-// Middleware: ensure MongoDB connection before handling API requests
-app.use(async (req, res, next) => {
+// Health check (no database needed)
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'Kindora API is running' });
+});
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', message: 'Kindora API is running' });
+});
+
+// Ensure MongoDB connection before handling API requests
+app.use('/api', async (req, res, next) => {
   try {
-    const database = await connectDB();
-    req.app.locals.db = database;
+    req.app.locals.db = await connectDB();
     next();
   } catch (err) {
     console.error('DB connection error:', err.message);
@@ -30,39 +45,31 @@ app.use(async (req, res, next) => {
   }
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Kindora API is running' });
-});
-
 // API documentation endpoint
 app.get('/api/docs', (req, res) => {
   res.json({
     name: 'Kindora API',
-    version: '1.0.0',
-    description: 'Social Impact Platform REST API',
+    version: '1.1.0',
     endpoints: {
-      'GET /api/events': 'Public - Get upcoming events with pagination, search, filters',
-      'GET /api/events/recent': 'Public - Get six recent upcoming events',
-      'GET /api/events/:id': 'Public - Get event details',
+      'GET /api/events': 'Public - Upcoming events (search, category, location, pagination)',
+      'GET /api/events/recent': 'Public - Six nearest upcoming events',
+      'GET /api/events/:id': 'Public - Event details',
       'POST /api/events': 'JWT - Create event',
-      'GET /api/my-events': 'JWT - Get user\'s created events',
-      'PATCH /api/events/:id': 'JWT + Owner - Update event',
-      'DELETE /api/events/:id': 'JWT + Owner - Delete event',
+      'PATCH /api/events/:id': 'JWT + owner - Update event',
+      'DELETE /api/events/:id': 'JWT + owner - Delete event',
       'POST /api/events/:id/join': 'JWT - Join event',
-      'GET /api/my-joined-events': 'JWT - Get joined events sorted by date',
-      'GET /api/users/me': 'JWT - Get current profile',
-      'PATCH /api/users/me': 'JWT - Update profile',
-      'GET /health': 'Public - Health check'
-    }
+      'GET /api/events/:id/join-status': 'JWT - Whether the user joined this event',
+      'GET /api/my-events': 'JWT - Events created by the user',
+      'GET /api/my-joined-events': 'JWT - Events joined by the user, sorted by event date',
+      'GET /api/users/me': 'JWT - Identity from the token',
+    },
   });
 });
 
 // API routes
 app.use('/api/events', eventRoutes);
-app.use('/api/my-events', eventRoutes);
-app.use('/api/events', participantRoutes);
-app.use('/api/my-joined-events', participantRoutes);
+app.use('/api/my-events', myEventsRouter);
+app.use('/api/my-joined-events', myJoinedEventsRouter);
 app.use('/api/users', userRoutes);
 
 // 404 handler
@@ -72,5 +79,11 @@ app.use((req, res) => {
 
 // Centralized error handler
 app.use(errorHandler);
+
+// Local development: start a server. On Vercel the default export is used instead.
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 5001;
+  app.listen(PORT, () => console.log(`Kindora API listening on http://localhost:${PORT}`));
+}
 
 export default app;
