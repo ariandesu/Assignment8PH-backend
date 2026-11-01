@@ -1,4 +1,4 @@
-import { MongoClient, ServerApiVersion } from 'mongodb';
+import { MongoClient } from 'mongodb';
 
 const uri = process.env.MONGODB_URI;
 const dbName = 'kindora';
@@ -16,12 +16,9 @@ const connectDB = async () => {
 
   if (!clientPromise) {
     client = new MongoClient(uri, {
-      serverApi: ServerApiVersion.v1,
       serverSelectionTimeoutMS: 20000,
       connectTimeoutMS: 20000,
       socketTimeoutMS: 20000,
-      tls: true,
-      tlsAllowInvalidCertificates: true,
     });
     clientPromise = client.connect();
   }
