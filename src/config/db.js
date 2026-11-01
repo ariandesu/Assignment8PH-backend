@@ -1,18 +1,18 @@
 import { MongoClient } from 'mongodb';
 
 const uri = process.env.MONGODB_URI;
-const dbName = 'kindora';
+const dbName = process.env.DB_NAME || 'kindora';
 
 let client;
 let clientPromise;
 let db;
 
-if (!uri) {
-  throw new Error('Please add your MONGODB_URI to environment variables');
-}
-
 const connectDB = async () => {
   if (db) return db;
+
+  if (!uri) {
+    throw new Error('Please add your MONGODB_URI to environment variables');
+  }
 
   if (!clientPromise) {
     client = new MongoClient(uri, {

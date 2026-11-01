@@ -1,28 +1,23 @@
+// eslint-disable-next-line no-unused-vars
 export const errorHandler = (err, req, res, next) => {
   let statusCode = err.statusCode || 500;
-  let message = err.message || 'Internal Server Error';
+  let message = statusCode === 500 ? 'Something went wrong. Please try again.' : err.message;
 
-  // Mongoose / MongoDB duplicate key error (duplicate participation)
   if (err.code === 11000) {
     statusCode = 409;
     message = 'You have already joined this event.';
   }
 
-  // JWT errors
-  if (err.name === 'TokenExpiredError') {
-    statusCode = 401;
-    message = 'Session expired. Please log in again.';
-  }
-  if (err.name === 'JsonWebTokenError') {
-    statusCode = 401;
-    message = 'Invalid token. Please log in again.';
+  if (err.type === 'entity.parse.failed') {
+    statusCode = 400;
+    message = 'Invalid JSON body.';
   }
 
-  const isDevelopment = process.env.NODE_ENV === 'development';
+  if (statusCode === 500) console.error(err);
 
   res.status(statusCode).json({
     success: false,
     message,
-    ...(isDevelopment && { stack: err.stack }),
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
   });
 };
