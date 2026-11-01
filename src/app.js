@@ -5,7 +5,7 @@ import eventRoutes from './routes/event.routes.js';
 import participantRoutes from './routes/participant.routes.js';
 import userRoutes from './routes/user.routes.js';
 import { errorHandler } from './middlewares/errorHandler.js';
-import { connectDB } from './config/db.js';
+import { connectDB, getDB } from './config/db.js';
 
 const app = express();
 
@@ -18,42 +18,22 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 
+// Middleware: ensure MongoDB connection before handling API requests
+app.use(async (req, res, next) => {
+  try {
+    const database = await connectDB();
+    req.app.locals.db = database;
+    next();
+  } catch (err) {
+    console.error('DB connection error:', err.message);
+    res.status(500).json({ success: false, message: 'Database connection failed' });
+  }
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Kindora API is running' });
 });
-
-// API routes
-app.use('/api/events', eventRoutes);
-app.use('/api/my-events', eventRoutes);
-app.use('/api/events', participantRoutes);
-app.use('/api/my-joined-events', participantRoutes);
-app.use('/api/users', userRoutes);
-
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ success: false, message: 'Route not found' });
-});
-
-// Centralized error handler
-app.use(errorHandler);
-
-const PORT = process.env.PORT || 5001;
-
-connectDB()
-  .then((db) => {
-    app.locals.db = db;
-    app.listen(PORT, () => {
-      console.log(`🚀 Kindora server running on port ${PORT}`);
-      console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-    });
-  })
-  .catch((err) => {
-    console.error('Failed to connect to MongoDB:', err.message);
-    process.exit(1);
-  });
-
-export default app;
 
 // API documentation endpoint
 app.get('/api/docs', (req, res) => {
@@ -77,3 +57,20 @@ app.get('/api/docs', (req, res) => {
     }
   });
 });
+
+// API routes
+app.use('/api/events', eventRoutes);
+app.use('/api/my-events', eventRoutes);
+app.use('/api/events', participantRoutes);
+app.use('/api/my-joined-events', participantRoutes);
+app.use('/api/users', userRoutes);
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: 'Route not found' });
+});
+
+// Centralized error handler
+app.use(errorHandler);
+
+export default app;
