@@ -54,3 +54,26 @@ connectDB()
   });
 
 export default app;
+
+// API documentation endpoint
+app.get('/api/docs', (req, res) => {
+  res.json({
+    name: 'Kindora API',
+    version: '1.0.0',
+    description: 'Social Impact Platform REST API',
+    endpoints: {
+      'GET /api/events': 'Public - Get upcoming events with pagination, search, filters',
+      'GET /api/events/recent': 'Public - Get six recent upcoming events',
+      'GET /api/events/:id': 'Public - Get event details',
+      'POST /api/events': 'JWT - Create event',
+      'GET /api/my-events': 'JWT - Get user\'s created events',
+      'PATCH /api/events/:id': 'JWT + Owner - Update event',
+      'DELETE /api/events/:id': 'JWT + Owner - Delete event',
+      'POST /api/events/:id/join': 'JWT - Join event',
+      'GET /api/my-joined-events': 'JWT - Get joined events sorted by date',
+      'GET /api/users/me': 'JWT - Get current profile',
+      'PATCH /api/users/me': 'JWT - Update profile',
+      'GET /health': 'Public - Health check'
+    }
+  });
+});
