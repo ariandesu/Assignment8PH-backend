@@ -2,8 +2,8 @@
 
 Express + MongoDB REST API for **Kindora**, a social development events platform.
 
-**Live API:** https://server-delta-five-18.vercel.app
-**Client repository:** https://github.com/ariandesu/Assignment8-frontend
+**Live API:** https://assignment8ph-backend.vercel.app
+**Client repository:** https://github.com/ariandesu/Assignment8PH-frontend
 
 ## Authentication
 
